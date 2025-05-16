@@ -17,7 +17,7 @@
       import * as Coordinates from
       "./coordinates.js"
     
-      import * as zip from "zip.js";
+      import * as zip from "./zip.js";
       await fetch('./metaballs/metaballs.zip').then(res=>res.blob()).then(data => {
         console.log(new zip.ZipReader(data).getEntries('utf-8'))
       })
