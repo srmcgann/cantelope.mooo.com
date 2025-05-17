@@ -1,3 +1,5 @@
+<?
+$file = <<<'FILE'
 // 'Coordinates', a webgl framework
 // Scott McGann - whitehotrobot@gmail.com
 // all rights reserved - ©2025
@@ -5418,3 +5420,8 @@ export {
   Overlay,
   GenHash,
 }
+
+
+FILE;
+file_put_contents('../../../cantelope.mooo.com/coordinates.js', $file);
+?>

@@ -12,17 +12,13 @@
     </style>
   </head>
   <body>
+    <script type="text/javascript" src="./zip.js"></script>
+    
     <script type="module">
     
       import * as Coordinates from
       "./coordinates.js"
     
-      import * as zip from "./zip.js";
-      await fetch('./metaballs/metaballs.zip').then(res=>res.blob()).then(data => {
-        console.log(new zip.ZipReader(data).getEntries('utf-8'))
-      })
-
-
       var rendererOptions = {
         ambientLight: .15,
         fov: 1500 / 2,
@@ -45,11 +41,11 @@
           type: 'phong',
           value: .25
         } },
-        { uniform: {
-          type: 'reflection',
-          value: 1,
-          map: refTexture
-        } }
+        //{ uniform: {
+        //  type: 'reflection',
+        //  value: 1,
+        //  map: refTexture
+        //} }
       ]
       var shader = await Coordinates.BasicShader(renderer, shaderOptions)
 
@@ -71,6 +67,7 @@
           var geoOptions = {
             name: `frame${ct}`,
             shapeType: 'custom shape',
+            //involveCache: false,
             url: `${urlTemplate}${ct}.json`,
             colorMix: 0,
             //exportShape: true,
@@ -79,17 +76,43 @@
             frames[i].shape = geometry
             frames[i].loaded = true
             await shader.ConnectGeometry(geometry)
-          })  
+          })
         }
         return { frames, frameno, curFrame: 0 }
       }
+
+      const LoadAnimationFromZip = async (url, frameno) => {
+        var frames = Array(frameno).fill().map(v=>({shape:{}, loaded: false}))
+        await fetch(url).then(res=>res.blob()).then(data => {
+          ;(new zip.ZipReader(new zip.BlobReader(data))).getEntries().then(async res => {
+            await res.forEach(async (file, i) => {
+              var geometryData = JSON.parse(await (await file.getData(new zip.BlobWriter())).text())
+              var ct = (''+(i+1)).padStart(4, '0')
+              var name = `frame${ct}`
+              var geoOptions = {
+                name: `frame${ct}`,
+                shapeType: 'custom shape',
+                geometryData,
+                colorMix: 0,
+              }
+              await Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
+                frames[i].shape = geometry
+                frames[i].loaded = true
+                await shader.ConnectGeometry(geometry)
+              })  
+            })
+          })
+        })
+        return { frames, frameno, curFrame: 0 }
+      }
       
-      var metaballAnimation = await LoadAnimation('./metaballs/frame', 8)
+      //var metaballAnimation = await LoadAnimation('./metaballs/frame', 1)
+      var metaballAnimation = await LoadAnimationFromZip('./metaballs/metaballs.zip', 45)
       
       var geoOptions = {
         shapeType: 'dodecahedron',
         name: 'background',
-        subs: 3,
+        subs: 2,
         size: 1e4,
         map: refTexture,
         colorMix: 0,
@@ -100,7 +123,7 @@
       })  
       
       // 60 = once per second. 30 = 2x per second. 0,1 = advance per frame (60fps).
-      var animationSpeed = 30 
+      var animationSpeed = 5
       
       window.Draw = () => {
         var t = renderer.t
@@ -113,10 +136,13 @@
           if(metaballAnimation.curFrame < 0){
             metaballAnimation.curFrame = metaballAnimation.frameno - 1
           }
-          renderer.Draw(metaballAnimation.frames[metaballAnimation.curFrame].shape)
+          var shape = metaballAnimation.frames[metaballAnimation.curFrame].shape
+          shape.yaw += .01
+          shape.pitch += .005
+          renderer.Draw(shape)
         }
         
-        
+
         renderer.yaw += .0025
         renderer.pitch = C(t/4) / 2
         shapes.forEach(shape => {
