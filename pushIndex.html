@@ -19,35 +19,41 @@ $file = <<<'FILE'
     <script type="module">
     
       import * as Coordinates from
-      "./coordinates.js"
+      "https://srmcgann.github.io/Coordinates/coordinates.min.js"
     
       var rendererOptions = {
-        ambientLight: .15,
+        margin: 0,
+        ambientLight: .2,
         fov: 1500 / 2,
         width: 960,
         height: 540,
       }
       var renderer = await Coordinates.Renderer(rendererOptions)
       
-      renderer.z = 20
+      renderer.z = 32
       var S = Math.sin
       var C = Math.cos
       var Rn = Math.random
       
-      var refTexture = 'https://srmcgann.github.io/Coordinates/resources/ultracloudsbase.jpg'
+      //var refTexture = 'https://srmcgann.github.io/Coordinates/resources/rd3_po2_small.mp4'
+      var refTexture = 'https://i.imgur.com/b1Lf8Rn.mp4'
+      var heightMap = refTexture //'https://srmcgann.github.io/Coordinates/resources/bumpmap_equirectangular_po2.jpg'
       
       Coordinates.AnimationLoop(renderer, 'Draw')
 
       var shaderOptions = [
+        { lighting: { type: 'ambientLight', value: .4}},
         { uniform: {
           type: 'phong',
-          value: .25
+          value: .45
         } },
-        //{ uniform: {
-        //  type: 'reflection',
-        //  value: 1,
-        //  map: refTexture
-        //} }
+        { uniform: {
+          type: 'reflection',
+          enabled: true,
+          value: .3,
+          map: refTexture,
+          playbackSpeed: 1,
+        } }
       ]
       var shader = await Coordinates.BasicShader(renderer, shaderOptions)
 
@@ -83,33 +89,58 @@ $file = <<<'FILE'
         return { frames, frameno, curFrame: 0 }
       }
 
-      const LoadAnimationFromZip = async (url, frameno) => {
-        var frames = Array(frameno).fill().map(v=>({shape:{}, loaded: false}))
-        await fetch(url).then(res=>res.blob()).then(data => {
+      const LoadAnimationFromZip = (url, name='', callback='') => {
+        var ret = {loaded: false, frames: [],
+                   curFrame: 0, name, geometries: []}
+        fetch(url).then(res=>res.blob()).then(data => {
           ;(new zip.ZipReader(new zip.BlobReader(data))).getEntries().then(async res => {
+            var tct = res.length
+            ret.frames = Array(tct).fill().map(v=>({data: {}, name: ''}))
             await res.forEach(async (file, i) => {
-              var geometryData = JSON.parse(await (await file.getData(new zip.BlobWriter())).text())
+              var data = JSON.parse(await (await file.getData(new zip.BlobWriter())).text())
               var ct = (''+(i+1)).padStart(4, '0')
-              var name = `frame${ct}`
-              var geoOptions = {
-                name: `frame${ct}`,
-                shapeType: 'custom shape',
-                geometryData,
-                colorMix: 0,
+              ret.frames[i].name = `frame${ct}`
+              ret.frames[i].data = data
+              if(i==tct-1) {
+                ret.loaded = true
+                if(callback) callback(ret)
               }
-              await Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
-                frames[i].shape = geometry
-                frames[i].loaded = true
-                await shader.ConnectGeometry(geometry)
-              })  
             })
           })
         })
-        return { frames, frameno, curFrame: 0 }
+        return ret
       }
       
       //var metaballAnimation = await LoadAnimation('./metaballs/frame', 1)
-      var metaballAnimation = await LoadAnimationFromZip('./metaballs/metaballs.zip', 45)
+      var metaballAnimation = await LoadAnimationFromZip('https://srmcgann.github.io/Coordinates/custom shapes/alienDog/body/body.zip',
+      'metaball animation', (resource) => {
+        resource.frames.forEach((frame, idx) => {
+          if(!(idx%4)){
+            var geoOptions = {
+              shapeType: 'custom shape',
+              flipNormals: true,
+              name: 'metaball animation frame',
+              geometryData: frame.data,
+              color: 0x884400,
+              y: -4.5,
+              //map: 'https://srmcgann.github.io/Coordinates/custom shapes/alienDog/textures/diffuse.jpg',
+              //map: 'https://bosstools.mooo.com/assets/uploads/1QXQ2S.jpeg',
+              map: heightMap,
+              scaleUVX: 4,
+              scaleUVY: 4,
+              //heightMap,
+              equirectangular: true,
+              //heightMapIntensity: 2,
+              colorMix: 0,
+            }
+            Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
+              resource.geometries[idx/4|0] = geometry
+              await shader.ConnectGeometry(geometry)
+            })
+          }
+        })
+      })
+      
       
       var geoOptions = {
         shapeType: 'dodecahedron',
@@ -124,32 +155,56 @@ $file = <<<'FILE'
         await backgroundShader.ConnectGeometry(geometry)
       })  
       
+      var geoOptions = {
+        shapeType: 'cube',
+        name: 'base',
+        subs: 3,
+        y: -25,
+        equirectangular: false,
+        averageNormals: true,
+        spherize: .25,
+        heightMap: refTexture,
+        heightMapIntensity: 10,
+        map: refTexture,
+        size: 30,
+        colorMix: 0,
+      }
+      await Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
+        shapes.push(geometry)
+        await shader.ConnectGeometry(geometry)
+      })  
+      
       // 60 = once per second. 30 = 2x per second. 0,1 = advance per frame (60fps).
-      var animationSpeed = 5
+      var animationSpeed = 2
       
       window.Draw = () => {
         var t = renderer.t
         
-        if(metaballAnimation.frames.filter(v=>v.loaded).length == metaballAnimation.frameno){
+        if(typeof metaballAnimation != 'undefined' && metaballAnimation.loaded &&
+           metaballAnimation.geometries.length){
           if(!(((t*60)|0)%animationSpeed)) metaballAnimation.curFrame++
-          if(metaballAnimation.curFrame == metaballAnimation.frameno){   
+          if(metaballAnimation.curFrame >= metaballAnimation.geometries.length){   
             metaballAnimation.curFrame = 0
           }
           if(metaballAnimation.curFrame < 0){
-            metaballAnimation.curFrame = metaballAnimation.frameno - 1
+            metaballAnimation.curFrame = metaballAnimation.geometries.length - 1
           }
-          var shape = metaballAnimation.frames[metaballAnimation.curFrame].shape
-          shape.yaw += .01
-          shape.pitch += .005
-          renderer.Draw(shape)
+          var shape = metaballAnimation.geometries[metaballAnimation.curFrame]
+          if(typeof shape != 'undefined' && shape.vertices.length){
+            shape.yaw = -t / 2
+            //shape.pitch += .005
+            renderer.Draw(shape)
+          }
         }
         
-
-        renderer.yaw += .0025
-        renderer.pitch = C(t/4) / 2
+        renderer.yaw += .005
+        renderer.pitch = C(t/2) / 2 + .5
         shapes.forEach(shape => {
           switch(shape.name){
             case 'background':
+            break
+            case 'base':
+            shape.yaw = -t / 2
             break
             default:
               shape.yaw += .01
@@ -163,6 +218,7 @@ $file = <<<'FILE'
     </script>
   </body>
 </html>
+
 
 FILE;
 file_put_contents('../../../cantelope.mooo.com/index.html', $file);
