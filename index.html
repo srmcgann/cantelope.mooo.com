@@ -12,12 +12,11 @@
     </style>
   </head>
   <body>
-    <script type="text/javascript" src="./zip.js"></script>
     
     <script type="module">
     
       import * as Coordinates from
-      "https://srmcgann.github.io/Coordinates/coordinates.min.js"
+      "./coordinates.js"
     
       var rendererOptions = {
         margin: 0,
@@ -33,14 +32,13 @@
       var C = Math.cos
       var Rn = Math.random
       
-      //var refTexture = 'https://srmcgann.github.io/Coordinates/resources/rd3_po2_small.mp4'
-      var refTexture = 'https://i.imgur.com/b1Lf8Rn.mp4'
-      var heightMap = refTexture //'https://srmcgann.github.io/Coordinates/resources/bumpmap_equirectangular_po2.jpg'
+      var refTexture = 'https://srmcgann.github.io/Coordinates/resources/grid_grey_dark_po2_lowres.jpg'
+      
       
       Coordinates.AnimationLoop(renderer, 'Draw')
 
       var shaderOptions = [
-        { lighting: { type: 'ambientLight', value: .4}},
+        { lighting: { type: 'ambientLight', value: .25}},
         { uniform: {
           type: 'phong',
           value: .45
@@ -56,7 +54,7 @@
       var shader = await Coordinates.BasicShader(renderer, shaderOptions)
 
       var shaderOptions = [
-        { lighting: {type: 'ambientLight', value: .5}},
+        { lighting: {type: 'ambientLight', value: .4}},
         { uniform: {
           type: 'phong',
           value: 0
@@ -87,57 +85,22 @@
         return { frames, frameno, curFrame: 0 }
       }
 
-      const LoadAnimationFromZip = (url, name='', callback='') => {
-        var ret = {loaded: false, frames: [],
-                   curFrame: 0, name, geometries: []}
-        fetch(url).then(res=>res.blob()).then(data => {
-          ;(new zip.ZipReader(new zip.BlobReader(data))).getEntries().then(async res => {
-            var tct = res.length
-            ret.frames = Array(tct).fill().map(v=>({data: {}, name: ''}))
-            await res.forEach(async (file, i) => {
-              var data = JSON.parse(await (await file.getData(new zip.BlobWriter())).text())
-              var ct = (''+(i+1)).padStart(4, '0')
-              ret.frames[i].name = `frame${ct}`
-              ret.frames[i].data = data
-              if(i==tct-1) {
-                ret.loaded = true
-                if(callback) callback(ret)
-              }
-            })
-          })
-        })
-        return ret
-      }
-      
       //var metaballAnimation = await LoadAnimation('./metaballs/frame', 1)
-      var metaballAnimation = await LoadAnimationFromZip('https://srmcgann.github.io/Coordinates/custom shapes/alienDog/body/body.zip',
-      'metaball animation', (resource) => {
-        resource.frames.forEach((frame, idx) => {
-          if(!(idx%4)){
-            var geoOptions = {
-              shapeType: 'custom shape',
-              flipNormals: true,
-              name: 'metaball animation frame',
-              geometryData: frame.data,
-              color: 0x884400,
-              y: -4.5,
-              //map: 'https://srmcgann.github.io/Coordinates/custom shapes/alienDog/textures/diffuse.jpg',
-              //map: 'https://bosstools.mooo.com/assets/uploads/1QXQ2S.jpeg',
-              map: heightMap,
-              scaleUVX: 4,
-              scaleUVY: 4,
-              //heightMap,
-              equirectangular: true,
-              //heightMapIntensity: 2,
-              colorMix: 0,
-            }
-            Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
-              resource.geometries[idx/4|0] = geometry
-              await shader.ConnectGeometry(geometry)
-            })
-          }
-        })
-      })
+      var geoOptions = {
+        shapeType: 'obj',
+        url: 'https://srmcgann.github.io/zipAnimations/test.zip',
+        flipNormals: true,
+        name: 'metaballs2',
+        color: 0x884400,
+        colorMix: .2,
+        scaleX: .25,
+        scaleY: .25,
+        scaleZ: .25,
+        averageNormals: true,
+        downloadShape: true,
+      }
+      var metaballAnimation = await Coordinates.LoadAnimationFromZip(renderer,
+                                       geoOptions, shader)
       
       
       var geoOptions = {
@@ -167,7 +130,7 @@
         size: 30,
         colorMix: 0,
       }
-      await Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
+      if(0) await Coordinates.LoadGeometry(renderer, geoOptions).then(async (geometry) => {
         shapes.push(geometry)
         await shader.ConnectGeometry(geometry)
       })  
