@@ -87,6 +87,7 @@ $file = <<<'FILE'
         return { frames, frameno, curFrame: 0 }
       }
 
+      /*
       //var metaballAnimation = await LoadAnimation('./metaballs/frame', 1)
       var geoOptions = {
         shapeType: 'obj',
@@ -103,7 +104,20 @@ $file = <<<'FILE'
       }
       var metaballAnimation = await Coordinates.LoadAnimationFromZip(renderer,
                                        geoOptions, shader)
-      
+      */
+      var geoOptions = {
+        shapeType: 'obj',
+        name: 'rocket',
+        //averageNormals: true,
+        url: 'https://srmcgann.github.io/zipAnimations/test.zip',
+        map: 'https://srmcgann.github.io/zipAnimations/rocket.jpg',
+        color: 0xffffff,
+        colorMix: 0,
+        downloadShape: true,
+      }
+      var rocketFromZip = await Coordinates.LoadAnimationFromZip(renderer,
+                                       geoOptions, shader)
+                                       
       
       var geoOptions = {
         shapeType: 'dodecahedron',
@@ -138,27 +152,32 @@ $file = <<<'FILE'
       })  
       
       // 60 = once per second. 30 = 2x per second. 0,1 = advance per frame (60fps).
-      var animationSpeed = 2
       
-      window.Draw = () => {
+      const DrawAnimation = (renderer, animation) => {
         var t = renderer.t
-        
-        if(typeof metaballAnimation != 'undefined' && metaballAnimation.loaded &&
-           metaballAnimation.geometries.length){
-          if(!(((t*60)|0)%animationSpeed)) metaballAnimation.curFrame++
-          if(metaballAnimation.curFrame >= metaballAnimation.geometries.length){   
-            metaballAnimation.curFrame = 0
+        var animationSpeed = 2
+        if(typeof animation != 'undefined' && animation.loaded &&
+           animation.geometries.length){
+          if(!(((t*60)|0)%animationSpeed)) animation.curFrame++
+          if(animation.curFrame >= animation.geometries.length){   
+            animation.curFrame = 0
           }
-          if(metaballAnimation.curFrame < 0){
-            metaballAnimation.curFrame = metaballAnimation.geometries.length - 1
+          if(animation.curFrame < 0){
+            animation.curFrame = animation.geometries.length - 1
           }
-          var shape = metaballAnimation.geometries[metaballAnimation.curFrame]
+          var shape = animation.geometries[animation.curFrame]
           if(typeof shape != 'undefined' && shape.vertices.length){
-            shape.yaw = -t / 2
-            //shape.pitch += .005
+            shape.yaw += .03
+            shape.pitch = C(t/2) /2
             renderer.Draw(shape)
           }
         }
+      }
+      
+      window.Draw = () => {
+        var t = renderer.t
+
+        DrawAnimation(rocketFromZip)
         
         renderer.yaw += .005
         renderer.pitch = C(t/2) / 2 + .5
