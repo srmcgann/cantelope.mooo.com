@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Coordinates boilerplate example</title>
+    <style>
+      body, html{
+        background: #333;
+        margin: 0;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+    
+      import * as Coordinates from
+      "https://srmcgann.github.io/Coordinates/coordinates.min.js"
+    
+    var rendererOptions = {
+      ambientLight: .5,
+      fov: 1500
+    }
+    var renderer = await Coordinates.Renderer(rendererOptions)
+    
+    renderer.z = 10
+    
+    Coordinates.AnimationLoop(renderer, 'Draw')
+
+    var shaderOptions = [
+      { uniform: {
+        type: 'phong',
+        value: .75
+      } }
+    ]
+    var shader = await Coordinates.BasicShader(renderer, shaderOptions)
+
+
+    var geoOptions = {
+      shapeType: 'custom shape',
+      name: 'demo',
+      flipNormals: true,
+      url: 'https://srmcgann.github.io/Coordinates/zip animations/demoAnimation.zip',
+      map: 'https://srmcgann.github.io/Coordinates/resources/nebugrid_po2.jpg',
+      colorMix: 0,
+    }
+    var animation = await Coordinates.LoadAnimationFromZip(renderer,
+                                     geoOptions, shader)
+    
+    window.Draw = () => {
+      var t = renderer.t
+      var options = {
+        x: 0, y: 0, z: 0,
+        animationSpeed: .5,
+        roll: 0, pitch: 0, yaw: t/2
+      }
+      Coordinates.DrawAnimation(renderer, animation, options)
+    }
+      
+    </script>
+  </body>
+</html>
