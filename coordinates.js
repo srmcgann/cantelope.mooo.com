@@ -856,42 +856,136 @@ const R_rpy = (X,Y,Z, cam, m=false) => {
   return [X, Y, Z]
 }
 
+
 // load anim frames from zip, expects any file name(s)
 // returns object w/ .geometries, .loaded [true/false], .curFrame [0],
 const LoadAnimationFromZip = (renderer, options, shader) => {
   var frames = [], baseName = options.name
-  var ret = {loaded: false, curFrame: 0, geometries: []}
+  var ret = {loaded: false, curFrame: 0, geometries: [], dir: 1}
   fetch(options.url).then(res=>res.blob()).then(data => {
     ;(new zip.ZipReader(new zip.BlobReader(data))).getEntries()
-    .then(async res => {
+    .then(res => {
       var tct = res.length
       frames = Array(tct).fill().map(v=>({data: {}}))
-      await res.forEach(async (file, i) => {
-        var data = await (await file.getData(new zip.BlobWriter())).text()
-        if(options.shapeType == 'custom shape') data = JSON.parse(data)
-        frames[i].data = data
-        if(i==tct-1) {
-          ret.loaded = true
-          frames.forEach(async (frame, idx) => {
-            var ct = (''+(idx+1)).padStart(4, '0')
-            if(!(idx%1)){
-              options.geometryData = frame.data
-              options.name = `${baseName?baseName+'_':''}frame${ct}.json`
-              await LoadGeometry(renderer, options)
-                .then(async (geometry) => {
-                ret.geometries[idx/1|0] = geometry
-                await shader.ConnectGeometry(geometry)
-              })
-            }
-          })
-        }
+      res.forEach(async (file, i) => {
+        (await file.getData(await (new zip.BlobWriter()))).text().then(data=>{
+          var ct = 0
+          do{ ct++ }while(data.substr(0,2)=='PK');
+          if(options.shapeType == 'custom shape') data = JSON.parse(data)
+          frames[i].data = data
+          if(i==tct-1) {
+            ret.loaded = true
+            var zipWriter = new zip.ZipWriter(new zip.BlobWriter())
+            frames.forEach((frame, idx) => {
+              var ct = (''+(idx+1)).padStart(4, '0')
+              if(!(idx%1) && typeof frame.data.vertices != 'undefined' &&
+                                    frame.data.vertices.length){
+                options.geometryData = frame.data
+                options.name = `${baseName?baseName+'_':''}frame${ct}.json`
+                LoadGeometry(renderer, options).then((geo) => {
+                  ret.geometries[idx/1|0] = geo
+                  shader.ConnectGeometry(geo)
+                  var vertices   = []
+                  var normals    = []
+                  var normalVecs = []
+                  var uvs        = []
+                  for(var i = 0; i < geo.vertices.length; i++)
+                    vertices.push(Math.round(geo.vertices[i]*1e3)/1e3)
+                  for(var i = 0; i < geo.uvs.length; i++)
+                    uvs.push(Math.round(geo.uvs[i]*1e3)/1e3)
+                  for(var i = 0; i < geo.normals.length; i++)
+                    normals.push(Math.round(geo.normals[i]*1e3)/1e3)
+                  for(var i = 0; i < geo.normalVecs.length; i++)
+                    normalVecs.push(Math.round(geo.normalVecs[i]*1e3)/1e3)
+                  var object = { vertices, uvs, normals, normalVecs }
+                  var textReader = new zip.TextReader(JSON.stringify(object))
+                  var ct = (''+(idx+1)).padStart(4, '0')
+                  zipWriter.add(`frame_${ct}.json`, textReader)
+                  if(idx == tct-1 && !!options.downloadShape){
+                    DownloadFile(zipWriter.close(), 'animation.zip')
+                  }
+                })
+              }
+            })
+          }
+        })
       })
     })
   })
   return ret
 }
 
-const DownloadCustomShape = geo => {
+const DrawAnimation = (renderer, animation, options) => {
+  var t = renderer.t
+  var x = 0, y = 0, z = 0
+  var roll = 0, pitch = 0, yaw = 0
+  var speed    = 1
+  var loopMode = 'reverse'
+  var animationSpeed = (1/speed) | 0
+
+  if(typeof options != 'undefined'){
+    Object.keys(options).forEach((key, idx) =>{
+      switch(key.toLowerCase()){
+        case 'x':     x           = +options[key]; break
+        case 'y':     y           = +options[key]; break
+        case 'z':     z           = +options[key]; break
+        case 'roll':  roll        = +options[key]; break
+        case 'pitch': pitch       = +options[key]; break
+        case 'yaw':   yaw         = +options[key]; break
+        case 'loopmode': loopMode = options[key]; break
+        case 'animationspeed': animationSpeed = (1/(+options[key]))|0; break
+      }
+    })
+  }
+
+  if(typeof animation != 'undefined' && animation.loaded &&
+     animation.geometries.length){
+    for(var m=1;m--;){
+      if(animationSpeed && !(((t*60)|0)%animationSpeed))
+      animation.curFrame += animation.dir
+      if(animation.curFrame >= animation.geometries.length-(loopMode=='cycle'?0:1)){
+        switch(loopMode){
+          case 'cycle':
+            animation.curFrame = 0
+          break
+          case 'reverse':
+            animation.dir = -1
+          break
+          default:
+            animation.dir = -1
+          break
+        }
+      }
+      if(animation.curFrame < (loopMode=='cycle'?0:1)){
+        switch(loopMode){
+          case 'cycle':
+            animation.curFrame = animation.geometries.length - 1
+          break
+          case 'reverse':
+            animation.dir = 1
+          break
+          default:
+            animation.dir = 1
+          break
+        }
+      }
+    }
+    var shape = animation.geometries[animation.curFrame]
+    if(typeof shape != 'undefined' &&
+       typeof shape.vertices != 'undefined' &&
+       shape.vertices.length){
+      shape.x = x
+      shape.y = y
+      shape.z = z
+      shape.roll  = roll
+      shape.pitch = pitch
+      shape.yaw   = yaw
+      renderer.Draw(shape)
+    }
+  }
+}
+  
+const DownloadCustomShape = async geo => {
 
   var vertices = []
   var normals = []
@@ -917,6 +1011,15 @@ const DownloadCustomShape = geo => {
   link.click()
 }
 
+const DownloadFile = (blob, name='downloaded_file') => {
+
+  var link      = document.createElement('a')
+  link.href     = window.URL.createObjectURL(blob)
+  link.download = name
+  link.click()
+  window.URL.revokeObjectURL(blob)
+}
+
 const LoadGeometry = async (renderer, geoOptions) => {
 
   var objX, objY, objZ, objRoll, objPitch, objYaw
@@ -932,6 +1035,7 @@ const LoadGeometry = async (renderer, geoOptions) => {
   
   // geo defaults
   var x = 0, y = 0, z = 0
+  var flipX = false, flipY = false, flipZ = false
   var roll = 0, pitch = 0, yaw = 0
   var scaleX=1, scaleY=1, scaleZ=1
   var scaleUVX  = 1, scaleUVY  = 1
@@ -1015,6 +1119,9 @@ const LoadGeometry = async (renderer, geoOptions) => {
       case 'shownormals'        : showNormals = !!geoOptions[key]; break
       case 'sphereize'          : sphereize = geoOptions[key]; break
       case 'rotationmode'       : rotationMode = geoOptions[key]; break
+      case 'flipx'              : flipX = geoOptions[key]; break
+      case 'flipy'              : flipY = geoOptions[key]; break
+      case 'flipz'              : flipZ = geoOptions[key]; break
       case 'objx'               : objX = geoOptions[key]; break
       case 'objy'               : objY = geoOptions[key]; break
       case 'objz'               : objZ = geoOptions[key]; break
@@ -1536,6 +1643,22 @@ const LoadGeometry = async (renderer, geoOptions) => {
     }
   }
   
+  if(flipX){
+    for(var i=0; i< vertices.length; i+=3){
+      vertices[i+1] *= -1
+    }
+  }
+  if(flipY){
+    for(var i=0; i< vertices.length; i+=3){
+      vertices[i+1] *= -1
+    }
+  }
+  if(flipZ){
+    for(var i=0; i< vertices.length; i+=3){
+      vertices[i+1] *= -1
+    }
+  }
+  
   if(flipNormals && !exportShape){
     for(var i=0; i<normals.length; i+=6){
       normals[i+3] = normals[i+0] - (normals[i+3]-normals[i+0])
@@ -1725,6 +1848,7 @@ const LoadGeometry = async (renderer, geoOptions) => {
     canvasTexture, canvasTextureMix, showBounding,
     boundingColor, heightMap, heightMapIntensity,
     heightMapIsCanvas, equirectangularHeightmap,
+    flipX, flipY, flipZ,
     rotationMode
   }
   Object.keys(updateGeometry).forEach((key, idx) => {
@@ -1749,7 +1873,7 @@ const LoadGeometry = async (renderer, geoOptions) => {
   }
   
   
-  if(geometry.downloadShape) DownloadCustomShape(geometry)
+  //if(geometry.downloadShape) DownloadCustomShape(geometry)
 
   return geometry
 }
@@ -2451,7 +2575,7 @@ const BasicShader = async (renderer, options=[]) => {
                   flatShading:         typeof option[key].flatShading == 'undefined' ?
                                          false : option[key].flatShading,
                   flipReflections:     typeof option[key].flipReflections == 'undefined' ?
-                                         false : option[key].flipReflections,
+                                         0 : option[key].flipReflections,
                   flatShadingUniform:  'refFlatShading',
                   dataType:            'uniform1f',
                   vertDeclaration:     `
@@ -2470,14 +2594,14 @@ const BasicShader = async (renderer, options=[]) => {
                     //light.rgb += .05;
                     float refP1, refP2;
                     if(refOmitEquirectangular != 1.0){
-                      vec3 reflectionPos = R_rpy(nVi, vec3(geoOri.x,
-                                                       -geoOri.y, geoOri.z));
+                      vec3 reflectionPos = R_rpy(nV, vec3(0.0,
+                                                      -camOri.y, -camOri.z));
                       float px = reflectionPos.x;
                       float py = reflectionPos.y;
                       float pz = reflectionPos.z;
                       refP1 = -atan(px, pz) / M_PI / 4.0;
                       refP2 = acos( py / (.001 + sqrt(px * px + py * py + pz * pz))) / M_PI;
-                      if(refFlipRefs != 1.0) refP2 = 1.0 - refP2;
+                      if(refFlipRefs == 1.0) refP2 = 1.0 - refP2;
                     } else {
                       refP1 = vUv.x;
                       refP2 = vUv.y;
@@ -2528,15 +2652,19 @@ const BasicShader = async (renderer, options=[]) => {
                         py = 0.0;
                         pz = 0.0;
                       }else{
-                        px = nV.x;
-                        py = nV.y;
-                        pz = nV.z;
+                        vec3 phongPos = R_rpy(nV, vec3(camOri.x, 0.0, 0.0));
+                        px = phongPos.x;
+                        py = phongPos.y;
+                        pz = phongPos.z;
                       }
+
                       phongP1 = atan(px, pz) + phongTheta;
                       phongP2 = -acos( py / (.001 + sqrt(px * px + py * py + pz * pz)));
+                      
+                      //if(refFlipRefs == 1.0) phongP2 = M_PI - phongP2;
 
-                      float fact = pow(pow((1.0+cos(phongP1)) * (1.0+cos(phongP2+M_PI/2.0-.2)), 3.0), 3.0) / 5e5 * phong ;
-                      light = vec4(light.rgb + fact, 1.0) * 25.0;
+                      float fact = pow(pow((1.0+cos(phongP1)) * (1.0+cos(phongP2+M_PI/2.0+.2)), 3.0), 3.0) / 5e5 * phong ;
+                      light = vec4(light.rgb + fact, 1.0) * 15.0;
                     }
                   `,
                 }
@@ -2567,7 +2695,7 @@ const BasicShader = async (renderer, options=[]) => {
     }else{
       //gl.cullFace(gl.BACK)
     }
-  
+
     let uVertDeclaration = ''
     dataset.optionalUniforms.map(v=>{ uVertDeclaration += ("\n" + v.vertDeclaration + "\n") })
     let uVertCode= ''
@@ -2802,7 +2930,7 @@ const BasicShader = async (renderer, options=[]) => {
           if(skip == 0.0){
             float p2 = - (acos(Y / (dist + .0001)) / M_PI * 2.0 - 1.0) * 1.05;
             gl_PointSize = 100.0 * pointSize / dist;
-            gl_Position = vec4(p1, p2, dist/200000.0, 1.0);
+            gl_Position = vec4(p1, p2, dist/50000.0, 1.0);
             vUv = uv;
           }
         } else {  // default projection
@@ -2810,7 +2938,7 @@ const BasicShader = async (renderer, options=[]) => {
           Y = (pos.y + cpy + geo.y) / Z / resolution.y * fov;
           if(Z > 0.0) {
             gl_PointSize = 100.0 * pointSize / Z;
-            gl_Position = vec4(X, Y, Z/200000.0, 1.0);
+            gl_Position = vec4(X, Y, Z/50000.0, 1.0);
             skip = 0.0;
             vUv = uv;
           }else{
@@ -3169,7 +3297,7 @@ const BasicShader = async (renderer, options=[]) => {
                           ret.datasets = [...ret.datasets, {
                             texture: uniform.refTexture, iURL: url }]
                           gl.activeTexture(gl.TEXTURE1)
-                          gl.uniform1f(uniform.locRefFlipRefs , uniform.refTexture)
+                          gl.uniform1f(uniform.locRefFlipRefs , uniform.flipReflections)
                           gl.bindTexture(gl.TEXTURE_2D, uniform.refTexture)
                           image.onload = () =>{
                             BindImage(gl, image, uniform.refTexture, uniform.textureMode, -1, url)
@@ -4942,8 +5070,9 @@ const LoadFPSControls = async (renderer, options) => {
   renderer.flyMode               = false
   renderer.useKeys               = true
   renderer.crosshairSel          = 0
+  renderer.crosshairAlpha        = .6
   renderer.useFPSControls        = true
-  var crosshairs = Array(3).fill().map((v, i) => `${ModuleBase}/resources/crosshairs/crosshair${i+1}.png`)
+  var crosshairs = Array(4).fill().map((v, i) => `${ModuleBase}/resources/crosshairs/crosshair${i+1}.png`)
   if(typeof options != 'undefined'){
     Object.keys(options).forEach((key, idx) =>{
       switch(key.toLowerCase()){
@@ -4955,6 +5084,7 @@ const LoadFPSControls = async (renderer, options) => {
         case 'flymode': renderer.flyMode = !!options[key]; break
         case 'usekeys': renderer.useKeys = !!options[key]; break
         case 'crosshairmap': renderer.crosshairMap = options[key]; break
+        case 'crosshairalpha': renderer.crosshairAlpha = +options[key]; break
         case 'showcrosshair': renderer.showCrosshair = !!options[key]; break
         case 'focusrequiredformouse': renderer.focusRequiredForMouse = !!options[key]; break
       }
@@ -5051,7 +5181,7 @@ const LoadFPSControls = async (renderer, options) => {
 
       if(renderer.showCrosshair && crosshairImages[renderer.crosshairSel].loaded) {
         var s = 200 * renderer.crosshairSize
-        Overlay.ctx.globalAlpha = .6
+        Overlay.ctx.globalAlpha = renderer.crosshairAlpha
         Overlay.ctx.drawImage(crosshairImages[renderer.crosshairSel].img,
           Overlay.width / 2 - s/2, Overlay.height / 2 - s/2, s, s)
         Overlay.ctx.globalAlpha = 1
@@ -5172,7 +5302,6 @@ const ShouldDisableDepth = () => {
 
 
 const AnimationLoop = (renderer, func) => {
-  console.log('entering animation loop', renderer)
   const loop = async () => {
     Overlay.margin = renderer.margin
     Overlay.rsz()
@@ -5488,6 +5617,7 @@ export {
   Torus,
   DownloadCustomShape,
   LoadAnimationFromZip,
+  DrawAnimation,
   TorusKnot,
   Rectangle,
   Q, R, R_ypr, R_pyr, R_rpy,
